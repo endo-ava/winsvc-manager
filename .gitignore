@@ -1,0 +1,31 @@
+# .NET build outputs
+bin/
+obj/
+out/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# NuGet
+*.nupkg
+packages/
+
+# Deployment artifacts (generated)
+services/
+
+# WinSW binaries (downloaded by bootstrap)
+tools/winsw/
+
+# Logs
+*.log
+
+# Personal plan (contains local paths)
+first-plan.md
