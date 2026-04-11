@@ -1,0 +1,61 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.ServiceProcess;
+using System.Threading.Tasks;
+using Winsvc.Contracts;
+using Winsvc.Core;
+
+namespace Winsvc.Infrastructure;
+
+public class WindowsServiceMonitor : IWindowsServiceMonitor
+{
+    public Task<IEnumerable<WindowsServiceInfo>> GetAllServicesAsync()
+    {
+        var services = ServiceController.GetServices().Select(MapServiceInfo);
+        return Task.FromResult(services);
+    }
+
+    public Task<WindowsServiceInfo?> GetServiceAsync(string id)
+    {
+        try
+        {
+            var service = ServiceController.GetServices().FirstOrDefault(s => s.ServiceName.Equals(id, StringComparison.OrdinalIgnoreCase));
+            if (service == null)
+            {
+                return Task.FromResult<WindowsServiceInfo?>(null);
+            }
+            return Task.FromResult<WindowsServiceInfo?>(MapServiceInfo(service));
+        }
+        catch (Exception)
+        {
+            return Task.FromResult<WindowsServiceInfo?>(null);
+        }
+    }
+
+    private WindowsServiceInfo MapServiceInfo(ServiceController sc)
+    {
+        string startMode = "Unknown";
+        try { startMode = sc.StartType.ToString(); } catch { }
+
+        return new WindowsServiceInfo
+        {
+            Id = sc.ServiceName,
+            DisplayName = sc.DisplayName,
+            State = MapState(sc.Status),
+            StartMode = startMode
+        };
+    }
+
+    private ServiceState MapState(ServiceControllerStatus status)
+    {
+        return status switch
+        {
+            ServiceControllerStatus.Stopped => ServiceState.Stopped,
+            ServiceControllerStatus.StartPending => ServiceState.Starting,
+            ServiceControllerStatus.Running => ServiceState.Running,
+            ServiceControllerStatus.StopPending => ServiceState.Stopping,
+            _ => ServiceState.Unknown
+        };
+    }
+}
