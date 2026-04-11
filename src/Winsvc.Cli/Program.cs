@@ -1,6 +1,6 @@
 using System.CommandLine;
 
-var rootCommand = new RootCommand("mlsvc - Windows ML Service Manager");
+var rootCommand = new RootCommand("winsvc - Windows Service Manager");
 
 // --- render ---
 var renderCommand = new Command("render", "Render WinSW XML from manifest");

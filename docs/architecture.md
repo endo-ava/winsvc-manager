@@ -4,7 +4,7 @@
 
 ```
 ┌─────────────────┐     ┌──────────────┐     ┌────────────────────┐
-│  mlsvc CLI      │────▶│  WinSW       │────▶│  ACE-Step API      │
+│  winsvc CLI     │────▶│  WinSW       │────▶│  ACE-Step API      │
 │  (C# .NET 9)    │     │  (exe + XML) │     │  (FastAPI/uvicorn) │
 └─────────────────┘     └──────────────┘     └────────────────────┘
         │                       │
@@ -16,16 +16,16 @@
 ## データフロー
 
 1. **manifest** (`manifests/acestep.yaml`) が唯一の設定源
-2. `mlsvc render` が manifest を読み、WinSW XML を生成
-3. `mlsvc install` が WinSW exe を使ってサービスを登録
+2. `winsvc render` が manifest を読み、WinSW XML を生成
+3. `winsvc install` が WinSW exe を使ってサービスを登録
 4. Windows SCM がサービスのライフサイクル（起動・停止・障害復旧）を管理
-5. `mlsvc status/health` が SCM と HTTP エンドポイントを問い合わせ
+5. `winsvc status/health` が SCM と HTTP エンドポイントを問い合わせ
 
 ## パス設計
 
 | 用途 | パス |
 |------|------|
-| Git リポジトリ | `C:\Users\ryuto\src\mlsvc-manager` |
+| Git リポジトリ | `C:\Users\ryuto\src\winsvc-manager` |
 | ランタイム | `C:\svc\runtimes\<service-id>\` |
 | WinSW 実体 | `C:\svc\services\<service-id>\` |
 | ログ | `C:\svc\services\<service-id>\logs\` |

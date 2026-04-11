@@ -28,4 +28,4 @@ tools/winsw/
 *.log
 
 # Personal plan (contains local paths)
-first-plan.md
+first-plan**.md

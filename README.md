@@ -1,6 +1,6 @@
-# mlsvc-manager
+# winsvc-manager
 
-Windows ML サービスを manifest 駆動で一元管理する C# CLI ツール。
+Windows サービスおよび常駐プロセスを manifest 駆動で一元管理する C# CLI ツール。
 
 ## 概要
 
@@ -10,28 +10,28 @@ WinSW を実行器として利用し、YAML manifest からサービス定義を
 ## アーキテクチャ
 
 ```
-manifests/*.yaml  →  mlsvc render  →  WinSW XML + exe  →  Windows Service
-                     mlsvc install/start/stop/status/health
+manifests/*.yaml  →  winsvc render  →  WinSW XML + exe  →  Windows Service
+                     winsvc install/start/stop/status/health
 ```
 
 - **manifest** (`manifests/`): 人間が編集する真実のサービス定義
 - **WinSW XML** (`C:\svc\services\`): manifest から生成されるデプロイ生成物
-- **CLI** (`mlsvc`): manifest を読み、WinSW を制御するインターフェース
+- **CLI** (`winsvc`): manifest を読み、WinSW を制御するインターフェース
 
 ## ディレクトリ構成
 
 ```
-mlsvc-manager/          ← このリポジトリ (Git 管理)
-  src/Mlsvc.Cli/        ← C# CLI 本体
-  manifests/             ← サービス定義 (YAML)
-  templates/             ← WinSW XML テンプレート
-  scripts/               ← セットアップスクリプト
-  docs/                  ← ドキュメント
+winsvc-manager/                  ← このリポジトリ (Git 管理)
+  src/Winsvc.Cli/         ← C# CLI 本体
+  manifests/                     ← サービス定義 (YAML)
+  templates/                     ← WinSW XML テンプレート
+  scripts/                       ← セットアップスクリプト
+  docs/                          ← ドキュメント
 
-C:\svc\                  ← 実運用デプロイ先 (Git 管理外)
-  runtimes/              ← Python ランタイム・venv
-  services/              ← WinSW exe + XML + ログ
-  state/                 ← 状態ファイル
+C:\svc\                          ← 実運用デプロイ先 (Git 管理外)
+  runtimes/                      ← Python ランタイム・venv
+  services/                      ← WinSW exe + XML + ログ
+  state/                         ← 状態ファイル
 ```
 
 ## クイックスタート
@@ -41,14 +41,14 @@ C:\svc\                  ← 実運用デプロイ先 (Git 管理外)
 .\scripts\bootstrap.ps1
 
 # CLI をビルド & ヘルプ表示
-dotnet run --project src\Mlsvc.Cli -- --help
+dotnet run --project src\Winsvc.Cli -- --help
 
 # サービスを管理
-dotnet run --project src\Mlsvc.Cli -- render acestep
-dotnet run --project src\Mlsvc.Cli -- install acestep
-dotnet run --project src\Mlsvc.Cli -- start acestep
-dotnet run --project src\Mlsvc.Cli -- status acestep
-dotnet run --project src\Mlsvc.Cli -- health acestep
+dotnet run --project src\Winsvc.Cli -- render acestep
+dotnet run --project src\Winsvc.Cli -- install acestep
+dotnet run --project src\Winsvc.Cli -- start acestep
+dotnet run --project src\Winsvc.Cli -- status acestep
+dotnet run --project src\Winsvc.Cli -- health acestep
 ```
 
 ## 設計方針

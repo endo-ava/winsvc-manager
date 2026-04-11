@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    mlsvc-manager の事前準備スクリプト
+    winsvc-manager の事前準備スクリプト
 .DESCRIPTION
     WinSW バイナリをダウンロードし、tools/winsw/ に配置します。
 #>
@@ -38,4 +38,4 @@ Write-Host "[bootstrap] Setup complete!" -ForegroundColor Green
 Write-Host "  WinSW: $winswExe"
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  dotnet run --project src\Mlsvc.Cli -- --help"
+Write-Host "  dotnet run --project src\Winsvc.Cli -- --help"
