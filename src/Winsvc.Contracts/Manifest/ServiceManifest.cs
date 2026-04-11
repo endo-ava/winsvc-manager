@@ -5,6 +5,7 @@ namespace Winsvc.Contracts.Manifest;
 public class ServiceManifest
 {
     public string Id { get; set; } = string.Empty;
+    public string Type { get; set; } = "managed";
     public string DisplayName { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public RuntimeConfig Runtime { get; set; } = new();

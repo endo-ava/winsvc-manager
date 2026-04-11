@@ -1,87 +1,204 @@
+using System;
 using System.CommandLine;
+using System.IO;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Winsvc.Core;
+using Winsvc.Infrastructure;
 
-var rootCommand = new RootCommand("winsvc - Windows Service Manager");
+namespace Winsvc.Cli;
 
-// --- render ---
-var renderCommand = new Command("render", "Render WinSW XML from manifest");
-var renderServiceId = new Argument<string>("service-id", "Service identifier (e.g. acestep)");
-renderCommand.AddArgument(renderServiceId);
-renderCommand.SetHandler((string id) =>
+class Program
 {
-    Console.WriteLine($"[render] Would generate WinSW XML for '{id}' (not yet implemented)");
-}, renderServiceId);
+    static async Task<int> Main(string[] args)
+    {
+        var services = new ServiceCollection();
+        ConfigureServices(services);
+        var serviceProvider = services.BuildServiceProvider();
 
-// --- install ---
-var installCommand = new Command("install", "Install a service via WinSW");
-var installServiceId = new Argument<string>("service-id", "Service identifier");
-installCommand.AddArgument(installServiceId);
-installCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[install] Would install service '{id}' (not yet implemented)");
-}, installServiceId);
+        return await BuildCommandLine(serviceProvider).InvokeAsync(args);
+    }
 
-// --- uninstall ---
-var uninstallCommand = new Command("uninstall", "Uninstall a service via WinSW");
-var uninstallServiceId = new Argument<string>("service-id", "Service identifier");
-uninstallCommand.AddArgument(uninstallServiceId);
-uninstallCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[uninstall] Would uninstall service '{id}' (not yet implemented)");
-}, uninstallServiceId);
+    static void ConfigureServices(IServiceCollection services)
+    {
+        services.AddSingleton<IManifestReader, YamlManifestReader>();
+        services.AddSingleton<IManifestValidator, ManifestValidator>();
+        services.AddSingleton<IWinSwXmlGenerator, WinSwXmlGenerator>();
+        services.AddSingleton<IHealthChecker, HttpClientHealthChecker>();
+        services.AddSingleton<IWindowsServiceMonitor, WindowsServiceMonitor>();
+        services.AddSingleton<IServiceManager, WinSwServiceManager>();
+    }
 
-// --- start ---
-var startCommand = new Command("start", "Start a service");
-var startServiceId = new Argument<string>("service-id", "Service identifier");
-startCommand.AddArgument(startServiceId);
-startCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[start] Would start service '{id}' (not yet implemented)");
-}, startServiceId);
+    static RootCommand BuildCommandLine(IServiceProvider sp)
+    {
+        var rootCommand = new RootCommand("Windows Service Manager CLI");
 
-// --- stop ---
-var stopCommand = new Command("stop", "Stop a service");
-var stopServiceId = new Argument<string>("service-id", "Service identifier");
-stopCommand.AddArgument(stopServiceId);
-stopCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[stop] Would stop service '{id}' (not yet implemented)");
-}, stopServiceId);
+        var listCommand = new Command("list", "List services");
+        var listWindowsCommand = new Command("windows", "List all Windows services");
+        listWindowsCommand.SetHandler(async () =>
+        {
+            var monitor = sp.GetRequiredService<IWindowsServiceMonitor>();
+            var services = await monitor.GetAllServicesAsync();
+            foreach (var svc in services)
+            {
+                Console.WriteLine($"{svc.Id} - {svc.DisplayName} ({svc.State}) [{svc.StartMode}]");
+            }
+        });
 
-// --- restart ---
-var restartCommand = new Command("restart", "Restart a service");
-var restartServiceId = new Argument<string>("service-id", "Service identifier");
-restartCommand.AddArgument(restartServiceId);
-restartCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[restart] Would restart service '{id}' (not yet implemented)");
-}, restartServiceId);
+        // 'list managed' reads all manifests in manifests/ dir
+        var listManagedCommand = new Command("managed", "List managed services based on manifests");
+        listManagedCommand.SetHandler(async () =>
+        {
+            if (!Directory.Exists("manifests"))
+            {
+                Console.WriteLine("No manifests directory found.");
+                return;
+            }
+            var reader = sp.GetRequiredService<IManifestReader>();
+            var monitor = sp.GetRequiredService<IWindowsServiceMonitor>();
+            
+            foreach (var file in Directory.GetFiles("manifests", "*.yaml"))
+            {
+                try {
+                    var manifest = await reader.ReadAsync(file);
+                    var status = await monitor.GetServiceAsync(manifest.Id);
+                    var stateStr = status != null ? status.State.ToString() : "NotInstalled";
+                    Console.WriteLine($"{manifest.Id} - {manifest.DisplayName} ({stateStr})");
+                } catch {
+                    Console.WriteLine($"failed to read {file}");
+                }
+            }
+        });
 
-// --- status ---
-var statusCommand = new Command("status", "Show service status");
-var statusServiceId = new Argument<string>("service-id", "Service identifier");
-statusCommand.AddArgument(statusServiceId);
-statusCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[status] Would show status for '{id}' (not yet implemented)");
-}, statusServiceId);
+        listCommand.AddCommand(listWindowsCommand);
+        listCommand.AddCommand(listManagedCommand);
 
-// --- health ---
-var healthCommand = new Command("health", "Check service health via HTTP endpoint");
-var healthServiceId = new Argument<string>("service-id", "Service identifier");
-healthCommand.AddArgument(healthServiceId);
-healthCommand.SetHandler((string id) =>
-{
-    Console.WriteLine($"[health] Would check health for '{id}' (not yet implemented)");
-}, healthServiceId);
+        var idArg = new Argument<string>("id", "Service ID");
 
-// Register all commands
-rootCommand.AddCommand(renderCommand);
-rootCommand.AddCommand(installCommand);
-rootCommand.AddCommand(uninstallCommand);
-rootCommand.AddCommand(startCommand);
-rootCommand.AddCommand(stopCommand);
-rootCommand.AddCommand(restartCommand);
-rootCommand.AddCommand(statusCommand);
-rootCommand.AddCommand(healthCommand);
+        var renderCommand = new Command("render", "Render WinSW XML from manifest");
+        renderCommand.AddArgument(idArg);
+        renderCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
 
-return await rootCommand.InvokeAsync(args);
+            var xml = sp.GetRequiredService<IWinSwXmlGenerator>().Generate(manifest);
+            Console.WriteLine(xml);
+        }, idArg);
+
+        var installCommand = new Command("install", "Install the service using WinSW");
+        installCommand.AddArgument(idArg);
+        installCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+            Console.WriteLine($"Installing {id}...");
+            var xml = sp.GetRequiredService<IWinSwXmlGenerator>().Generate(manifest);
+            await sp.GetRequiredService<IServiceManager>().InstallAsync(manifest, xml);
+            Console.WriteLine("Done.");
+        }, idArg);
+
+        var uninstallCommand = new Command("uninstall", "Uninstall the service using WinSW");
+        uninstallCommand.AddArgument(idArg);
+        uninstallCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+            Console.WriteLine($"Uninstalling {id}...");
+            await sp.GetRequiredService<IServiceManager>().UninstallAsync(manifest);
+            Console.WriteLine("Done.");
+        }, idArg);
+
+        var startCommand = new Command("start", "Start the service");
+        startCommand.AddArgument(idArg);
+        startCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+            Console.WriteLine($"Starting {id}...");
+            await sp.GetRequiredService<IServiceManager>().StartAsync(manifest);
+            Console.WriteLine("Done.");
+        }, idArg);
+
+        var stopCommand = new Command("stop", "Stop the service");
+        stopCommand.AddArgument(idArg);
+        stopCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+            Console.WriteLine($"Stopping {id}...");
+            await sp.GetRequiredService<IServiceManager>().StopAsync(manifest);
+            Console.WriteLine("Done.");
+        }, idArg);
+
+        var restartCommand = new Command("restart", "Restart the service");
+        restartCommand.AddArgument(idArg);
+        restartCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+            Console.WriteLine($"Restarting {id}...");
+            await sp.GetRequiredService<IServiceManager>().RestartAsync(manifest);
+            Console.WriteLine("Done.");
+        }, idArg);
+
+        var statusCommand = new Command("status", "Check OS status of a service");
+        statusCommand.AddArgument(idArg);
+        statusCommand.SetHandler(async (string id) =>
+        {
+            var monitor = sp.GetRequiredService<IWindowsServiceMonitor>();
+            var status = await monitor.GetServiceAsync(id);
+            if (status == null) Console.WriteLine($"Service '{id}' not found in OS.");
+            else Console.WriteLine($"{status.Id}: {status.State}");
+        }, idArg);
+
+        var healthCommand = new Command("health", "Check HTTP health of a managed service");
+        healthCommand.AddArgument(idArg);
+        healthCommand.SetHandler(async (string id) =>
+        {
+            var manifest = await LoadManifest(sp, id);
+            if (manifest == null) return;
+
+            var state = await sp.GetRequiredService<IHealthChecker>().CheckAsync(manifest.Health);
+            Console.WriteLine($"{id} health: {state}");
+        }, idArg);
+
+        var showCommand = new Command("show", "Show detailed loaded manifest config");
+        showCommand.AddArgument(idArg);
+        showCommand.SetHandler(async (string id) =>
+        {
+            var manifestPath = Path.Combine("manifests", $"{id}.yaml");
+            if (File.Exists(manifestPath))
+            {
+                var content = await File.ReadAllTextAsync(manifestPath);
+                Console.WriteLine(content);
+            }
+        }, idArg);
+
+
+        rootCommand.AddCommand(listCommand);
+        rootCommand.AddCommand(renderCommand);
+        rootCommand.AddCommand(installCommand);
+        rootCommand.AddCommand(uninstallCommand);
+        rootCommand.AddCommand(startCommand);
+        rootCommand.AddCommand(stopCommand);
+        rootCommand.AddCommand(restartCommand);
+        rootCommand.AddCommand(statusCommand);
+        rootCommand.AddCommand(healthCommand);
+        rootCommand.AddCommand(showCommand);
+
+        return rootCommand;
+    }
+
+    static async Task<Winsvc.Contracts.Manifest.ServiceManifest?> LoadManifest(IServiceProvider sp, string id)
+    {
+        var manifestPath = Path.Combine("manifests", $"{id}.yaml");
+        if (!File.Exists(manifestPath))
+        {
+            Console.Error.WriteLine($"Manifest not found: {manifestPath}");
+            return null;
+        }
+        var reader = sp.GetRequiredService<IManifestReader>();
+        return await reader.ReadAsync(manifestPath);
+    }
+}
