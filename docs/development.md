@@ -4,24 +4,30 @@
 
 開発機に必要なもの:
 - Windows
-- `.NET SDK 9`
+- `.NET SDK 10.0.201`
 - PowerShell
 
 現在のローカル target を動かすために必要なもの:
-- ACE-Step runtime が `C:\svc\runtimes\acestep\` に準備済みであること
 - WinSW 補助ファイルを `.\scripts\bootstrap.ps1` で取得していること
+- 管理対象サービスに対応する runtime や実行ファイルがホスト側に配置済みであること
 
 ## Commands
+
+solution build:
+
+```powershell
+dotnet build winsvc-manager.sln
+```
 
 CLI:
 
 ```powershell
 dotnet run --project src\Winsvc.Cli -- --help
-dotnet run --project src\Winsvc.Cli -- render acestep
-dotnet run --project src\Winsvc.Cli -- install acestep
-dotnet run --project src\Winsvc.Cli -- start acestep
-dotnet run --project src\Winsvc.Cli -- status acestep
-dotnet run --project src\Winsvc.Cli -- health acestep
+dotnet run --project src\Winsvc.Cli -- render <service-id>
+dotnet run --project src\Winsvc.Cli -- install <service-id>
+dotnet run --project src\Winsvc.Cli -- start <service-id>
+dotnet run --project src\Winsvc.Cli -- status <service-id>
+dotnet run --project src\Winsvc.Cli -- health <service-id>
 ```
 
 API:
@@ -29,53 +35,29 @@ API:
 ```powershell
 dotnet run --project src\Winsvc.Api
 curl http://127.0.0.1:8011/services/managed
-curl http://127.0.0.1:8011/services/acestep/health
+curl http://127.0.0.1:8011/services/<service-id>/health
 ```
 
 ## Build Issue
 
-この開発機では、通常の `dotnet build` がコンパイル前に失敗することがあります。
+この repository は `global.json` で SDK を固定しています。
 
-観測しているエラー:
-- `MSB4276`
-- `Microsoft.NET.SDK.WorkloadAutoImportPropsLocator` を解決できない
-- `Microsoft.NET.SDK.WorkloadManifestTargetsLocator` を解決できない
-
-意味:
-- `Winsvc.Api` のソースコードのコンパイルエラーではない
-- ローカル `.NET SDK` の workload resolver 側の問題
-
-## Workaround
-
-暫定回避:
+確認:
 
 ```powershell
-.\scripts\build-api.ps1
+dotnet --version
+dotnet build winsvc-manager.sln
 ```
 
-この script がやっていること:
-- `MSBuildEnableWorkloadResolver=false` を付ける
-- `.NET 9 SDK` 同梱の `MSBuild.dll` を `dotnet exec` で直接実行する
-
-script を使わない等価コマンド:
-
-```powershell
-$env:MSBuildEnableWorkloadResolver = "false"
-& "C:\Program Files\dotnet\dotnet.exe" exec "C:\Program Files\dotnet\sdk\9.0.312\MSBuild.dll" `
-    .\src\Winsvc.Api\Winsvc.Api.csproj `
-    /restore `
-    /t:Build `
-    /p:Configuration=Debug `
-    /v:minimal
-```
-
-この workaround は開発機固有です。標準手順として固定する意図ではありません。
+もし別の SDK が既に入っていても、`global.json` によりこの repository では `10.0.201` が選ばれます。
 
 ## Serve
 
-現行の Serve 例:
-- `8443 -> 127.0.0.1:8010` for ACE-Step
-- `8444 -> 127.0.0.1:8011` for winsvc-manager API
+Tailscale Serve を使う場合は、managed service 側と winsvc-manager API 側の公開ポートを分けて扱います。
+
+例:
+- managed service 側の HTTPS port
+- winsvc-manager API 側の HTTPS port
 
 確認:
 
