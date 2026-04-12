@@ -16,14 +16,14 @@ public class CoreTests
         var generator = new WinSwXmlGenerator();
         var manifest = new ServiceManifest
         {
-            Id = "acestep",
-            DisplayName = "ACE-Step API",
-            Description = "ACE-Step FastAPI service",
+            Id = "sample-service",
+            DisplayName = "Sample Service",
+            Description = "Sample managed service",
             Runtime = new RuntimeConfig
             {
-                WorkDir = @"C:\svc\runtimes\acestep\ACE-Step-1.5",
-                Executable = @"C:\svc\runtimes\acestep\.venv\Scripts\python.exe",
-                Arguments = new() { "-m", "acestep.api_server" }
+                WorkDir = @"C:\svc\runtimes\sample-service",
+                Executable = @"C:\svc\runtimes\sample-service\app.exe",
+                Arguments = new() { "--serve" }
             },
             Service = new ServiceConfig
             {
@@ -32,15 +32,15 @@ public class CoreTests
                 ResetFailure = "1 hour"
             }
         };
-        manifest.Env["ACESTEP_API_HOST"] = "127.0.0.1";
+        manifest.Env["SERVICE_HOST"] = "127.0.0.1";
 
         // Act
         var xml = generator.Generate(manifest);
 
         // Assert
-        Assert.Contains("<id>acestep</id>", xml);
-        Assert.Contains(@"<executable>C:\svc\runtimes\acestep\.venv\Scripts\python.exe</executable>", xml);
-        Assert.Contains("<env name=\"ACESTEP_API_HOST\" value=\"127.0.0.1\" />", xml);
+        Assert.Contains("<id>sample-service</id>", xml);
+        Assert.Contains(@"<executable>C:\svc\runtimes\sample-service\app.exe</executable>", xml);
+        Assert.Contains("<env name=\"SERVICE_HOST\" value=\"127.0.0.1\" />", xml);
         Assert.Contains("<onfailure action=\"restart\" delay=\"10 sec\" />", xml);
     }
 
@@ -60,26 +60,25 @@ public class CoreTests
     {
         // Arrange
         var yaml = @"
-id: acestep
-displayName: ACE-Step API
-description: ACE-Step FastAPI service
+id: sample-service
+displayName: Sample Service
+description: Sample managed service
 
 runtime:
-  workDir: C:\svc\runtimes\acestep\ACE-Step-1.5
-  executable: C:\svc\runtimes\acestep\.venv\Scripts\python.exe
+  workDir: C:\svc\runtimes\sample-service
+  executable: C:\svc\runtimes\sample-service\app.exe
   arguments:
-    - -m
-    - acestep.api_server
+    - --serve
 
 service:
-  wrapperDir: C:\svc\services\acestep
+  wrapperDir: C:\svc\services\sample-service
   startMode: delayed-auto
   onFailure: restart
   resetFailure: 1 hour
 
 env:
-  ACESTEP_API_HOST: 127.0.0.1
-  ACESTEP_API_PORT: ""8010""
+  SERVICE_HOST: 127.0.0.1
+  SERVICE_PORT: ""8010""
 
 health:
   url: http://127.0.0.1:8010/health
@@ -94,12 +93,12 @@ health:
         var manifest = await reader.ReadAsync(tempFile);
 
         // Assert
-        Assert.Equal("acestep", manifest.Id);
-        Assert.Equal("ACE-Step API", manifest.DisplayName);
-        Assert.Equal(@"C:\svc\runtimes\acestep\ACE-Step-1.5", manifest.Runtime.WorkDir);
-        Assert.Equal(2, manifest.Runtime.Arguments.Count);
-        Assert.Equal("-m", manifest.Runtime.Arguments[0]);
-        Assert.Equal("127.0.0.1", manifest.Env["ACESTEP_API_HOST"]);
+        Assert.Equal("sample-service", manifest.Id);
+        Assert.Equal("Sample Service", manifest.DisplayName);
+        Assert.Equal(@"C:\svc\runtimes\sample-service", manifest.Runtime.WorkDir);
+        Assert.Single(manifest.Runtime.Arguments);
+        Assert.Equal("--serve", manifest.Runtime.Arguments[0]);
+        Assert.Equal("127.0.0.1", manifest.Env["SERVICE_HOST"]);
         Assert.Equal("http://127.0.0.1:8010/health", manifest.Health.Url);
 
         // Cleanup

@@ -1,14 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\Winsvc.Core\Winsvc.Core.csproj" />
+    <ProjectReference Include="..\Winsvc.Contracts\Winsvc.Contracts.csproj" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.5" />
     <PackageReference Include="YamlDotNet" Version="17.0.1" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\Winsvc.Core\**\*.cs"
-             Exclude="..\Winsvc.Core\bin\**\*.cs;..\Winsvc.Core\obj\**\*.cs"
-             LinkBase="Core" />
   </ItemGroup>
 
   <PropertyGroup>
