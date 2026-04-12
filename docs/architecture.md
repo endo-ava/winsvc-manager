@@ -1,52 +1,148 @@
-# アーキテクチャ
+# Architecture
 
-## コンポーネント構成
+## Overview
 
+`winsvc-manager` は、manifest を唯一の設定源として Windows Service を管理する repository です。
+
+実装済みの役割は大きく 2 つ。
+- CLI から WinSW と Windows SCM を操作する
+- ローカル API から状態参照と最小限の制御を提供する
+
+## Data Flow
+
+基本フローは次のとおり。
+
+```text
+manifests/*.yaml
+  -> manifest reader / validator
+  -> WinSW XML generator
+  -> WinSW service wrapper
+  -> Windows Service Control Manager
+
+CLI / API
+  -> Core abstractions
+  -> Infrastructure implementations
+  -> status / health / start / stop / restart
 ```
-┌─────────────────┐     ┌──────────────┐     ┌────────────────────┐
-│  winsvc CLI     │────▶│  WinSW       │────▶│  ACE-Step API      │
-│  (C# .NET 9)    │     │  (exe + XML) │     │  (FastAPI/uvicorn) │
-└─────────────────┘     └──────────────┘     └────────────────────┘
-        │                       │
-        ▼                       ▼
-  manifests/*.yaml      Windows Service Manager
-  (真実のソース)          (SCM)
-```
 
-## データフロー
+状態参照系の流れ:
+1. CLI または API が service-id を受け取る
+2. manifest を読む
+3. Windows SCM からサービス状態を取る
+4. manifest 定義の health URL を叩く
+5. 呼び出し元へ DTO として返す
 
-1. **manifest** (`manifests/acestep.yaml`) が唯一の設定源
-2. `winsvc render` が manifest を読み、WinSW XML を生成
-3. `winsvc install` が WinSW exe を使ってサービスを登録
-4. Windows SCM がサービスのライフサイクル（起動・停止・障害復旧）を管理
-5. `winsvc status/health` が SCM と HTTP エンドポイントを問い合わせ
+制御系の流れ:
+1. CLI または API が service-id を受け取る
+2. manifest を読む
+3. WinSW 実行ファイルを呼び出す
+4. Windows SCM 上のサービスを開始・停止・再起動する
 
-## パス設計
+## Repository Layout
 
-| 用途 | パス |
-|------|------|
-| Git リポジトリ | `C:\Users\ryuto\src\winsvc-manager` |
-| ランタイム | `C:\svc\runtimes\<service-id>\` |
-| WinSW 実体 | `C:\svc\services\<service-id>\` |
-| ログ | `C:\svc\services\<service-id>\logs\` |
-| 状態 | `C:\svc\state\<service-id>\` |
+現在 solution に入っている主なプロジェクト:
+- `Winsvc.Contracts`
+  共有 DTO と manifest 型
+- `Winsvc.Core`
+  抽象インターフェースと validation
+- `Winsvc.Infrastructure`
+  YAML 読み込み、WinSW XML 生成、WinSW 実行、Windows Service 参照、HTTP health check
+- `Winsvc.Cli`
+  オペレーター向け CLI
+- `Winsvc.Api`
+  localhost bind の control-plane API
+- `Winsvc.Core.Tests`
+  現在の単体テスト
 
-## CLI サブコマンド
+## Runtime Layout
 
-| コマンド | 説明 |
-|----------|------|
-| `render <id>` | manifest → WinSW XML 生成 |
-| `install <id>` | サービス登録 |
-| `uninstall <id>` | サービス削除 |
-| `start <id>` | サービス開始 |
-| `stop <id>` | サービス停止 |
-| `restart <id>` | サービス再起動 |
-| `status <id>` | サービス状態表示 |
-| `health <id>` | HTTP ヘルスチェック |
+Git 管理対象と runtime 配置先は分離しています。
 
-## サービス設定
+repository 側:
+- source code
+- manifest
+- template
+- setup script
+- docs
 
-- **startMode**: `delayed-auto` (他の自動サービスの後に起動)
-- **onFailure**: `restart` (異常終了時に自動再起動)
-- **resetFailure**: `1 hour` (1時間後に障害カウンタリセット)
-- **バインド**: `127.0.0.1:8010` (localhost のみ)
+runtime 側:
+- `runtimes/<service-id>/`
+- `services/<service-id>/`
+- `state/<service-id>/`
+
+この方針により、WinSW XML や wrapper 配置物は生成物として扱います。
+
+## Component Roles
+
+### Contracts
+
+`Winsvc.Contracts` は共有モデルだけを持ちます。
+
+代表例:
+- `ServiceManifest`
+- `HealthConfig`
+- `WindowsServiceInfo`
+- `ServiceState`
+- `HealthState`
+
+### Core
+
+`Winsvc.Core` はアプリケーション境界です。
+
+主な抽象:
+- `IManifestReader`
+- `IManifestValidator`
+- `IServiceConfigGenerator`
+- `IServiceManager`
+- `IWindowsServiceMonitor`
+- `IHealthChecker`
+
+CLI と API はこの抽象に依存し、具体実装は Infrastructure へ寄せています。
+
+### Infrastructure
+
+`Winsvc.Infrastructure` は副作用を持つ実装層です。
+
+現在の実装:
+- `YamlManifestReader`
+- `WinSwXmlGenerator`
+- `WinSwServiceManager`
+- `WindowsServiceMonitor`
+- `HttpClientHealthChecker`
+
+ここがファイル I/O、プロセス実行、Windows Service 参照、HTTP 呼び出しを引き受けます。
+
+### CLI
+
+`Winsvc.Cli` は operator-facing な制御面です。
+
+現在のコマンド:
+- `render`
+- `install`
+- `uninstall`
+- `start`
+- `stop`
+- `restart`
+- `status`
+- `health`
+- `show`
+- `list windows`
+- `list managed`
+
+### API
+
+`Winsvc.Api` はローカル control plane です。
+
+現在の bind:
+- `127.0.0.1:8011`
+
+現在のエンドポイント:
+- `GET /services/windows`
+- `GET /services/managed`
+- `GET /services/{id}`
+- `GET /services/{id}/health`
+- `POST /services/{id}/start`
+- `POST /services/{id}/stop`
+- `POST /services/{id}/restart`
+
+現時点では `install`、`uninstall`、`render` は API に出していない。
