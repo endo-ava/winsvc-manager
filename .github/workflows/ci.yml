@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore winsvc-manager.sln
+
+      - name: Build
+        run: dotnet build winsvc-manager.sln --configuration Release --no-restore -m:1
+
+      - name: Test
+        run: dotnet test winsvc-manager.sln --configuration Release --no-build -m:1

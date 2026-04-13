@@ -20,6 +20,7 @@ packages/
 
 # Deployment artifacts (generated)
 services/
+artifacts/
 
 # WinSW binaries (downloaded by bootstrap)
 tools/winsw/
