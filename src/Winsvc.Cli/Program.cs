@@ -2,8 +2,10 @@ using System;
 using System.CommandLine;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Winsvc.Core;
+using Winsvc.Hosting;
 using Winsvc.Infrastructure;
 
 namespace Winsvc.Cli;
@@ -33,6 +35,30 @@ class Program
     {
         var rootCommand = new RootCommand("Windows Service Manager CLI");
 
+        var apiCommand = new Command("api", "API commands");
+        var serveCommand = new Command("serve", "Start the local API server");
+        var urlsOption = new Option<string?>("--urls", () => null, "Listen URLs (e.g. http://localhost:9011)");
+        var manifestDirOption = new Option<string?>("--manifest-dir", () => null, "Manifest directory path");
+        serveCommand.AddOption(urlsOption);
+        serveCommand.AddOption(manifestDirOption);
+        serveCommand.SetHandler(async (string? urls, string? manifestDir) =>
+        {
+            var builder = WebApplication.CreateBuilder();
+
+            if (urls is not null)
+                builder.Configuration["Winsvc:Api:Urls"] = urls;
+            if (manifestDir is not null)
+                builder.Configuration["Winsvc:ManifestDirectory"] = manifestDir;
+
+            builder.AddWinsvcApi();
+
+            var app = builder.Build();
+            app.MapWinsvcApiEndpoints();
+
+            await app.RunAsync();
+        }, urlsOption, manifestDirOption);
+        apiCommand.AddCommand(serveCommand);
+
         var listCommand = new Command("list", "List services");
         var listWindowsCommand = new Command("windows", "List all Windows services");
         listWindowsCommand.SetHandler(async () =>
@@ -45,7 +71,6 @@ class Program
             }
         });
 
-        // 'list managed' reads all manifests in manifests/ dir
         var listManagedCommand = new Command("managed", "List managed services based on manifests");
         listManagedCommand.SetHandler(async () =>
         {
@@ -179,6 +204,7 @@ class Program
         }, idArg);
 
 
+        rootCommand.AddCommand(apiCommand);
         rootCommand.AddCommand(listCommand);
         rootCommand.AddCommand(renderCommand);
         rootCommand.AddCommand(installCommand);
