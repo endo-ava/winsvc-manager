@@ -1,8 +1,10 @@
+using System.Runtime.Versioning;
 using Winsvc.Core;
 using Winsvc.Infrastructure;
 
 namespace Winsvc.Hosting;
 
+[SupportedOSPlatform("windows")]
 public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddWinsvcServices(this IServiceCollection services)

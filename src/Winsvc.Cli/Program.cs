@@ -1,26 +1,30 @@
 using System;
 using System.CommandLine;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Winsvc.Core;
 using Winsvc.Hosting;
 using Winsvc.Infrastructure;
 
 namespace Winsvc.Cli;
 
+[SupportedOSPlatform("windows")]
 class Program
 {
     static async Task<int> Main(string[] args)
     {
-        var services = new ServiceCollection();
-        ConfigureServices(services);
-        var serviceProvider = services.BuildServiceProvider();
+        var builder = Host.CreateApplicationBuilder(args);
+        ConfigureServices(builder.Services);
+        using var host = builder.Build();
 
-        return await BuildCommandLine(serviceProvider).InvokeAsync(args);
+        return await BuildCommandLine(host.Services).InvokeAsync(args);
     }
 
+    [SupportedOSPlatform("windows")]
     static void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IManifestReader, YamlManifestReader>();

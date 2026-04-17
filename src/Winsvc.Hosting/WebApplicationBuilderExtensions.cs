@@ -1,5 +1,8 @@
+using System.Runtime.Versioning;
+
 namespace Winsvc.Hosting;
 
+[SupportedOSPlatform("windows")]
 public static class WebApplicationBuilderExtensions
 {
     public static WebApplicationBuilder AddWinsvcApi(this WebApplicationBuilder builder)

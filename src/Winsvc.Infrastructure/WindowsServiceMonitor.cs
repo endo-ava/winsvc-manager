@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.Versioning;
 using System.ServiceProcess;
 using System.Threading.Tasks;
 using Winsvc.Contracts;
@@ -8,6 +9,7 @@ using Winsvc.Core;
 
 namespace Winsvc.Infrastructure;
 
+[SupportedOSPlatform("windows")]
 public class WindowsServiceMonitor : IWindowsServiceMonitor
 {
     public Task<IEnumerable<WindowsServiceInfo>> GetAllServicesAsync()
