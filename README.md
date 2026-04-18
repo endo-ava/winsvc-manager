@@ -1,158 +1,155 @@
 # winsvc-manager
 
-## Overview
+YAML で書いた設定ファイル（manifest）をもとに、Windows Service をコマンド一つでインストール・起動・監視できる CLI / APIツール。
 
-`winsvc-manager` は、YAML manifest をもとに Windows Service を管理するための .NET ツールです。
-manifest から WinSW 用設定を生成し、`winsvc` コマンドで service の `install` / `uninstall` / `start` / `stop` / `restart` / `status` / `health` を扱えます。
+## Why winsvc-manager
 
-このリポジトリには次が含まれます。
+自作ツールや外部リポジトリのプログラムをWindows PC起動時に自動起動させたいとき、主に３つの手段があるが、それぞれ以下の課題がある。
 
-- 利用者向け CLI（ローカル API 起動機能を含む）
-- manifest テンプレート
-- 開発用スクリプト
+**タスクスケジューラ**
+- GUI 操作が中心で、設定変更のたびに画面を開いて手順を踏む必要があり面倒
 
-配布物は GitHub Releases から取得できます。
+**services.msc / `sc.exe`**
+- `ServiceMain` を持たないプログラム（Node.js、Python スクリプト、バッチファイルなど）はサービス化できない
 
-## Quick Start
+**[WinSW](https://github.com/winsw/winsw)（直接使用）**
+- 任意の実行ファイルを Windows Service として動かせるが、サービスごとに XML を手書きし、WinSW バイナリを手動で配置する必要がある
+- CLI はあるが、API 経由で外部システムやAIエージェントから扱うための標準導線はない
 
-1. GitHub Releases から利用環境に合う ZIP を取得して展開します
-2. 展開先の `winsvc.exe` を使える場所に置きます
-3. `manifests/service.template.yaml` をコピーして manifest を作成します
-4. `winsvc render <service-id>` で内容を確認します
+winsvc-manager は manifest（YAML）でサービス定義を管理し、WinSW のサービス化を自動化しつつ、  API で運用可能にする。  
 
-例:
+- **manifest（YAML）駆動** - 実行ファイル、環境変数、ヘルスチェックURL などを宣言的に管理
+- **何でもサービス化** - ServiceMain を持たない任意の実行ファイルを Windows Service として動かす
+- **コマンド一発で登録** - `winsvc install`でサービス登録を実行（startMode が auto / delayed-auto    なら起動時自動起動）
+- **AI エージェント運用に適合** - API利用方法をSkill化することで、「何のWindows Service が稼働中か」「管理対象サービスが正常応答しているか」などのチェックをAIが可能になる
 
-```powershell
-Copy-Item manifests\service.template.yaml manifests\sample-service.yaml
-winsvc --help
-winsvc render sample-service
-winsvc install sample-service
-winsvc start sample-service
-winsvc status sample-service
-```
+## Getting Started
 
-### Bundled Files In Release ZIP
+前提: Windows / 管理者権限
 
-- `winsvc.exe`
-- `winsw.exe`
-- `appsettings.json`
-- `manifests/service.template.yaml`
+### 1. ダウンロード・展開
 
-`winsvc install <service-id>` now auto-copies bundled `winsw.exe` to `service.wrapperDir\<id>-service.exe` when that wrapper executable is missing.
+[GitHub Releases](https://github.com/endo-ly/winsvc-manager/releases) から環境に合う ZIP をダウンロードして展開。（一般的なWindowsPCなら `winsvc-v0.1.0-win-x64.zip`）
 
-`winsvc` コマンドとして実行するには、`winsvc.exe` が `PATH` の通った場所にある必要があります。
-まだ `PATH` に入れていない場合は、そのディレクトリで `.\winsvc.exe` を使ってください。
+展開後のファイル:
 
-## Distribution
+| ファイル | 説明 |
+|---|---|
+| `winsvc.exe` | CLI ツール本体 |
+| `winsw.exe` | WinSW（Windows Service をラップして管理しやすくする OSS ツール） |
+| `appsettings.json` | API サーバーの設定ファイル |
+| `manifests/service.template.yaml` | manifest テンプレート |
 
-GitHub Releases では次の配布物を提供します。
+PATH の通った場所に置くとどこからでも `winsvc` を使える。PATH に入っていなければ、同じディレクトリで `.\winsvc.exe` とする。
 
-- `winsvc-<tag>-win-x64.zip`
-- `winsvc-<tag>-win-x64.zip.sha256`
-- `winsvc-<tag>-win-arm64.zip`
-- `winsvc-<tag>-win-arm64.zip.sha256`
+### 2. manifest を作る
 
-ZIP を展開すると `winsvc.exe` / `winsw.exe` / `appsettings.json` / `manifests/service.template.yaml` が入っています。
-
-必要であれば SHA256 を照合してください。
+テンプレートをコピーして、サービスの定義を書く。
 
 ```powershell
-Get-FileHash .\winsvc-v0.1.0-win-x64.zip -Algorithm SHA256
-Get-Content .\winsvc-v0.1.0-win-x64.zip.sha256
+Copy-Item manifests\service.template.yaml manifests\my-app.yaml
 ```
 
-## Commands
+`my-app.yaml` のサービス名、実行ファイルのパス、ヘルスチェック URL などを編集する。設定できる項目の詳細は [Manifest 仕様](docs/manifest.md) を参照。
 
-`winsvc` のコマンド一覧です。
+`my-app.yaml` のファイル名（拡張子を除く）が **service-id** になる。以降のコマンドはこの service-id で対象を指定する。
 
-| Command | 引数 | 説明 |
-| --- | --- | --- |
-| `winsvc --help` | なし | 利用可能なコマンドと引数を表示します。 |
-| `winsvc render <service-id>` | `service-id`: manifest の ID | 指定 service の manifest を読み込み、生成される WinSW XML を標準出力に表示します。実際の install は行いません。 |
-| `winsvc install <service-id>` | `service-id`: manifest の ID | manifest を読み込み、WinSW XML を生成したうえで対象 service を install します。`service.wrapperDir\<id>-service.exe` が無い場合は同梱 `winsw.exe` から自動配置します。 |
-| `winsvc uninstall <service-id>` | `service-id`: manifest の ID | 指定 service を uninstall します。manifest が必要です。 |
-| `winsvc start <service-id>` | `service-id`: manifest の ID | 指定 service を起動します。 |
-| `winsvc stop <service-id>` | `service-id`: manifest の ID | 指定 service を停止します。 |
-| `winsvc restart <service-id>` | `service-id`: manifest の ID | 指定 service を再起動します。 |
-| `winsvc status <service-id>` | `service-id`: Windows Service 名 | Windows Service Control Manager 上の状態を確認します。manifest がなくても問い合わせできます。 |
-| `winsvc health <service-id>` | `service-id`: manifest の ID | manifest に定義された health URL に対して HTTP ヘルスチェックを実行します。 |
-| `winsvc show <service-id>` | `service-id`: manifest の ID | 読み込まれる manifest ファイルの生内容をそのまま表示します。 |
-| `winsvc list managed` | なし | `manifests/` 配下の manifest を列挙し、各 service の状態を表示します。 |
-| `winsvc list windows` | なし | Windows に登録されている全 service を列挙します。 |
-| `winsvc api serve` | `--urls`: リッスン URL<br>`--manifest-dir`: マニフェストディレクトリ | ローカル API サーバーを起動します。既定では `http://127.0.0.1:8011` でリッスンします。 |
+### 3. 確認・インストール・起動
 
-補足:
+```powershell
+# インストール
+winsvc install my-app
 
-- `install` / `uninstall` / `start` / `stop` / `restart` / `render` / `health` / `show` は manifest を参照します
-- manifest が見つからない場合はエラーを標準エラー出力に表示します
-- `list managed` は読み込み失敗した manifest に対して `failed to read <path>` を表示します
+# 起動
+winsvc start my-app
 
-ソースコードから直接実行する場合:
+# 状態確認
+winsvc status my-app
+
+# ヘルスチェック（manifest に health.url を設定している場合）
+winsvc health my-app
+```
+
+`install` 時、WinSW ラッパー実行ファイル（`<id>-service.exe`）が無ければ同梱の `winsw.exe` から自動コピーされる。
+
+## コマンドリファレンス
+
+| コマンド | 説明 |
+|---|---|
+| `winsvc --help` | ヘルプを表示 |
+| `winsvc render <service-id>` | WinSW XML を生成して表示（インストールはしない） |
+| `winsvc install <service-id>` | サービスをインストール |
+| `winsvc uninstall <service-id>` | サービスをアンインストール |
+| `winsvc start <service-id>` | サービスを起動 |
+| `winsvc stop <service-id>` | サービスを停止 |
+| `winsvc restart <service-id>` | サービスを再起動 |
+| `winsvc status <service-id>` | サービスの OS 上の状態を確認（manifest 不要） |
+| `winsvc health <service-id>` | HTTP ヘルスチェックを実行 |
+| `winsvc show <service-id>` | manifest の内容をそのまま表示 |
+| `winsvc list managed` | manifest 配下のサービスを一覧表示 |
+| `winsvc list windows` | Windows に登録されている全サービスを一覧表示 |
+| `winsvc api serve` | ローカル API サーバーを起動 |
+
+**`status` は manifest 不要:** Windows Service 名で直接問い合わせるため、winsvc-manager 経由でインストールしていないサービスも確認できる。
+
+**ソースコードから実行:**
 
 ```powershell
 dotnet run --project src\Winsvc.Cli -- --help
 ```
 
-## API
+## API リファレンス
 
-`winsvc api serve` でローカル API を起動します。
+`winsvc api serve` でローカル API を起動。既定は `http://127.0.0.1:8011`。
 
 ```powershell
+# 既定のポートで起動
 winsvc api serve
-winsvc api serve --urls http://localhost:9011
-winsvc api serve --manifest-dir ./my-services
+
+# ポート・manifest ディレクトリを指定
+winsvc api serve --urls http://localhost:9011 --manifest-dir ./my-services
 ```
 
-URL や manifest ディレクトリは `appsettings.json` の `Winsvc:Api:Urls` / `Winsvc:ManifestDirectory`、または環境変数 `Winsvc__Api__Urls` / `Winsvc__ManifestDirectory` でも設定できます。
-CLI 引数はこれらを上書きします。
+設定は CLI 引数 > 環境変数 > `appsettings.json` の順で優先される。
 
-`appsettings.json` は `winsvc.exe` と同じディレクトリに配置してください。配布 ZIP に含まれているものをそのまま使えます。
-独自の設定にする場合は内容を書き換えるか、環境変数・CLI 引数で上書きしてください。
+### エンドポイント一覧
 
-API 一覧:
+| メソッド | パス | 説明 |
+|---|---|---|
+| `GET` | `/` | 疎通確認 |
+| `GET` | `/services/windows` | Windows に登録されているサービス一覧 |
+| `GET` | `/services/managed` | 管理対象サービス一覧（manifest + 状態） |
+| `GET` | `/services/{id}` | サービス詳細 |
+| `GET` | `/services/{id}/health` | ヘルスチェック |
+| `POST` | `/services/{id}/start` | サービス起動 |
+| `POST` | `/services/{id}/stop` | サービス停止 |
+| `POST` | `/services/{id}/restart` | サービス再起動 |
 
-| Method | Path | 説明 |
-| --- | --- | --- |
-| `GET` | `/` | API の疎通確認です。 |
-| `GET` | `/services/windows` | Windows に登録されている service 一覧を返します。 |
-| `GET` | `/services/managed` | manifest と Windows Service 状態を突き合わせて、管理対象 service 一覧を返します。 |
-| `GET` | `/services/{id}` | 指定 service の詳細情報を返します。manifest が見つからない場合は `404` です。 |
-| `GET` | `/services/{id}/health` | 指定 service の health URL に対してヘルスチェックを行います。manifest が見つからない場合は `404` です。 |
-| `POST` | `/services/{id}/start` | 指定 service の起動を要求します。manifest が見つからない場合は `404` です。 |
-| `POST` | `/services/{id}/stop` | 指定 service の停止を要求します。manifest が見つからない場合は `404` です。 |
-| `POST` | `/services/{id}/restart` | 指定 service の再起動を要求します。manifest が見つからない場合は `404` です。 |
+- 404 の場合は `{ "error": "..." }` を返す
+- POST 系は要求受理時点で `{ "id": "...", "action": "start", "status": "queued" }` を返す（操作の完了を保証するものではない）
+- manifest の検証に失敗したサービスは `/services/managed` と `/services/{id}` に含まれない
 
-補足:
+## プロジェクト構成
 
-- `GET /services/managed` と `GET /services/{id}` は、manifest の妥当性検証に失敗した service を返しません
-- `404` のレスポンスは `{ "error": "..." }` 形式です
-- `POST` 系 endpoint は要求受理時点で `status: "queued"` を返します
-
-## Manifest
-
-manifest は `manifests/` 配下に配置します。
-
-```powershell
-Copy-Item manifests\service.template.yaml manifests\<service-id>.yaml
+```text
+src/
+  Winsvc.Cli/           CLI エントリポイント
+  Winsvc.Hosting/        API エンドポイント・DI
+  Winsvc.Core/           インターフェースと検証
+  Winsvc.Contracts/      共通データ型
+  Winsvc.Infrastructure/ 具体実装
+manifests/               manifest テンプレート
+scripts/                 開発用スクリプト
 ```
 
-manifest の仕様は [docs/manifest.md](docs/manifest.md) を参照してください。
+## ドキュメント一覧
 
-## Components
+| ドキュメント | 内容 |
+|---|---|
+| [Manifest 仕様](docs/manifest.md) | manifest の全フィールド、型、必須/任意、デフォルト値 |
+| [Architecture](docs/architecture.md) | アーキテクチャ、データフロー、コンポーネント構成 |
+| [Development](docs/development.md) | ビルド、テスト、CI、リリース手順 |
 
-- `src/Winsvc.Cli`
-  manifest の読み込み、WinSW 設定生成、サービス操作を行う CLI。`api serve` でローカル API も起動可能。
-- `src/Winsvc.Hosting`
-  API endpoint 定義、DI 登録、host 構築の共有ロジック。Cli から利用されます。
-- `src/Winsvc.Core`
-  アプリケーション層の抽象と検証ロジック
-- `src/Winsvc.Contracts`
-  共有 DTO、manifest 型、API レスポンス型
-- `src/Winsvc.Infrastructure`
-  YAML 読み込み、WinSW 連携、Windows Service 操作、HTTP ヘルスチェック
-- `manifests/`
-  manifest のテンプレートと定義ファイル
+## ライセンス
 
-## Development
-
-開発者向けの build / test / CI / release 情報は [docs/release-and-ci.md](docs/release-and-ci.md) を参照してください。
+MIT License. Copyright (c) 2026 endo-ly

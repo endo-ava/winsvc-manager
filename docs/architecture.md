@@ -1,151 +1,205 @@
 # Architecture
 
-## Overview
+## 概要
 
-`winsvc-manager` は、manifest を唯一の設定源として Windows Service を管理する repository です。
+winsvc-manager は、manifest（YAML 設定ファイル）を唯一の設定源として Windows Service を管理するツールです。
 
-実装済みの役割は大きく 2 つ。
-- CLI から WinSW と Windows SCM を操作する
-- CLI の `api serve` サブコマンドからローカル API を起動し、状態参照と最小限の制御を提供する
+2つの役割を持ちます。
 
-## Data Flow
+1. **CLI からの操作** - WinSW（Windows Service をラップして管理しやすくする OSS ツール）と Windows SCM（Service Control Manager）を直接操作する
+2. **API 経由の操作** - CLI の `api serve` からローカル API を起動し、HTTP 経由でサービスの状態参照と制御を提供する
 
-基本フローは次のとおり。
+プロジェクト全体は、クリーンアーキテクチャ風のレイヤー構成になっています。ビジネスロジックの抽象（インターフェース）を Core レイヤーに置き、副作用のある実装を Infrastructure レイヤーに閉じ込めることで、テスト可能性と保守性を高めています。
+
+## データフロー
+
+### 状態参照の流れ
 
 ```text
-manifests/*.yaml
-  -> manifest reader / validator
-  -> WinSW XML generator
-  -> WinSW service wrapper
-  -> Windows Service Control Manager
-
-CLI（api serve 経由）
-  -> Core abstractions
-  -> Infrastructure implementations
-  -> status / health / start / stop / restart
+CLI または API
+  → manifest を読み込む
+  → Windows SCM からサービス状態を取得
+  → manifest に定義された health URL を確認
+  → 結果を呼び出し元に返す
 ```
 
-状態参照系の流れ:
-1. CLI または API が service-id を受け取る
-2. manifest を読む
-3. Windows SCM からサービス状態を取る
-4. manifest 定義の health URL を叩く
-5. 呼び出し元へ DTO として返す
+`status` コマンドや `GET /services/{id}` は Windows SCM への問い合わせ結果を DTO（データを運ぶためのオブジェクト）として返します。`health` コマンドや `GET /services/{id}/health` は、manifest の `health.url` に HTTP リクエストを送り、応答があれば Healthy、タイムアウトやエラーなら Unhealthy と判定します。
 
-制御系の流れ:
-1. CLI または API が service-id を受け取る
-2. manifest を読む
-3. WinSW 実行ファイルを呼び出す
-4. Windows SCM 上のサービスを開始・停止・再起動する
+### 制御の流れ（start / stop / restart）
 
-## Repository Layout
+```text
+CLI または API
+  → manifest を読み込む
+  → WinSW XML を生成する
+  → WinSW 実行ファイルを呼び出す
+  → Windows SCM 上のサービスを操作する
+```
 
-現在 solution に入っている主なプロジェクト:
-- `Winsvc.Contracts`
-  共有 DTO、manifest 型、API レスポンス型
-- `Winsvc.Core`
-  抽象インターフェースと validation
-- `Winsvc.Infrastructure`
-  YAML 読み込み、WinSW XML 生成、WinSW 実行、Windows Service 参照、HTTP health check
-- `Winsvc.Hosting`
-  API endpoint 定義、DI 登録、ASP.NET Core host 構築の共有ロジック
-- `Winsvc.Cli`
-  オペレーター向け CLI。CLI 操作と `api serve` によるローカル API 起動の両方を担う。
-- `Winsvc.Core.Tests`
-  現在の単体テスト
+CLI でも API でも、manifest を読み込んで WinSW の XML 設定を生成するところまでは共通です。その後、WinSW の実行ファイルをプロセスとして呼び出し、Windows SCM を通じてサービスの開始・停止・再起動を行います。
 
-## Runtime Layout
+### install の流れ
 
-Git 管理対象と runtime 配置先は分離しています。
+install は CLI からのみ実行可能です。API には公開されていません。
 
-repository 側:
-- source code
-- manifest
-- template
-- setup script
-- docs
+```text
+CLI
+  → manifest を読み込む
+  → WinSW XML を生成する
+  → WinSW ラッパー実行ファイル（<id>-service.exe）が無ければ同梱の winsw.exe からコピー
+  → WinSW を使ってサービスを登録する
+```
 
-runtime 側:
-- `runtimes/<service-id>/`
-- `services/<service-id>/`
-- `state/<service-id>/`
+install 時、manifest の `service.wrapperDir` に `<id>-service.exe` が存在しない場合、配布 ZIP に同梱されている `winsw.exe` をコピーしてラッパー実行ファイルを自動生成します。これにより、利用者は WinSW の配置を意識する必要がありません。
 
-この方針により、WinSW XML や wrapper 配置物は生成物として扱います。
+## レイヤー構成
 
-## Component Roles
+```text
+┌─────────────────────────────────────────────────────┐
+│                   Winsvc.Cli                        │
+│                 （エントリポイント）                    │
+├─────────────────────────────────────────────────────┤
+│                   Winsvc.Hosting                     │
+│              （API エンドポイント、DI）                │
+├──────────────────────┬──────────────────────────────┤
+│     Winsvc.Core      │                              │
+│  （抽象・検証ロジック） │   Winsvc.Infrastructure       │
+│                      │   （具体実装・副作用）           │
+├──────────────────────┴──────────────────────────────┤
+│                Winsvc.Contracts                      │
+│           （共有データ型・DTO）                        │
+└─────────────────────────────────────────────────────┘
+```
+
+| レイヤー | プロジェクト | 役割 |
+|---|---|---|
+| エントリポイント | Winsvc.Cli | CLI コマンドの定義と実行。`api serve` による API 起動も担当 |
+| ホスティング | Winsvc.Hosting | API エンドポイント定義、DI 登録、ASP.NET Core host 構築 |
+| アプリケーション | Winsvc.Core | ビジネスロジックの抽象（インターフェース）と manifest 検証 |
+| 契約 | Winsvc.Contracts | 共通データ型（manifest 型、API レスポンス型、DTO） |
+| インフラストラクチャ | Winsvc.Infrastructure | 副作用のある実装（YAML 読み込み、WinSW 連携、サービス操作、HTTP ヘルスチェック） |
+
+### 依存関係の方向
+
+依存関係は内側に向かって注ぎます。
+
+```text
+Cli → Hosting → Core ← Infrastructure
+                      ↑
+         Contracts ← （全レイヤーから参照）
+```
+
+- **Cli** は Hosting に依存し、Hosting を通じて Core の抽象にアクセスする
+- **Hosting** は Core の抽象に依存して DI に登録する
+- **Infrastructure** は Core のインターフェースを実装する
+- **Contracts** はどのレイヤーからも参照されるが、自身は何も依存しない
+
+この方針により、Core は副作用を持たない純粋な抽象層として保たれます。
+
+## コンポーネント詳細
 
 ### Contracts
 
-`Winsvc.Contracts` は共有モデルだけを持ちます。
+Winsvc.Contracts は、レイヤー間で共有されるデータ型のみを含みます。ビジネスロジックや副作用は持ちません。
 
-代表例:
-- `ServiceManifest`
-- `HealthConfig`
-- `WindowsServiceInfo`
-- `ServiceState`
-- `HealthState`
-- `ApiInfoResponse`、`ManagedServiceResponse` など API レスポンス型
+主な型:
+
+| 型 | 分類 | 役割 |
+|---|---|---|
+| ServiceManifest | Manifest | 1つのサービス定義全体を表す |
+| HealthConfig | Manifest | ヘルスチェックの URL とタイムアウト設定 |
+| WindowsServiceInfo | ServiceState | Windows SCM から取得したサービス情報 |
+| ServiceState | ServiceState | サービスの状態を表す列挙型（Stopped, Running など） |
+| HealthState | ServiceState | ヘルスチェック結果を表す列挙型（Healthy, Unhealthy） |
+| ApiInfoResponse | API | API の疎通確認用レスポンス |
+| ManagedServiceResponse | API | 管理対象サービス一覧の各項目 |
 
 ### Core
 
-`Winsvc.Core` はアプリケーション境界です。
+Winsvc.Core は、アプリケーションの境界を定めるレイヤーです。インターフェースの定義と、manifest の検証ロジックを持ちます。実装の詳細は Infrastructure に委ねます。
 
-主な抽象:
-- `IManifestReader`
-- `IManifestValidator`
-- `IServiceConfigGenerator`
-- `IServiceManager`
-- `IWindowsServiceMonitor`
-- `IHealthChecker`
+主なインターフェース:
 
-CLI と Hosting はこの抽象に依存し、具体実装は Infrastructure へ寄せています。
+| インターフェース | 役割 |
+|---|---|
+| IManifestReader | manifest ファイルの読み込み |
+| IManifestValidator | manifest の妥当性検証 |
+| IServiceConfigGenerator | WinSW 用 XML の生成 |
+| IServiceManager | サービスの操作（install, uninstall, start, stop, restart） |
+| IWindowsServiceMonitor | Windows サービス状態の監視 |
+| IHealthChecker | HTTP ヘルスチェック |
+
+ManifestValidator は、必須フィールドの有無や値の妥当性を検証します。API の `GET /services/managed` は、この検証を通過した manifest のみを返します。
 
 ### Infrastructure
 
-`Winsvc.Infrastructure` は副作用を持つ実装層です。
+Winsvc.Infrastructure は、Core のインターフェースに対する具体実装です。ファイル I/O、プロセス実行、Windows API 呼び出し、HTTP 通信といった副作用をすべてここに閉じ込めます。
 
-現在の実装:
-- `YamlManifestReader`
-- `WinSwXmlGenerator`
-- `WinSwServiceManager`
-- `WindowsServiceMonitor`
-- `HttpClientHealthChecker`
+実装一覧:
 
-ここがファイル I/O、プロセス実行、Windows Service 参照、HTTP 呼び出しを引き受けます。
-
-### CLI
-
-`Winsvc.Cli` は operator-facing な制御面です。
-
-現在のコマンド:
-- `render`
-- `install`
-- `uninstall`
-- `start`
-- `stop`
-- `restart`
-- `status`
-- `health`
-- `show`
-- `list windows`
-- `list managed`
-- `api serve`
+| クラス | 対応インターフェース | 副作用の内容 |
+|---|---|---|
+| YamlManifestReader | IManifestReader | YAML ファイルの読み込み（YamlDotNet 使用） |
+| ManifestValidator | IManifestValidator | manifest のバリデーション |
+| WinSwXmlGenerator | IServiceConfigGenerator | WinSW 用 XML 文字列の生成 |
+| WinSwServiceManager | IServiceManager | WinSW 実行ファイルのプロセス起動と操作 |
+| WindowsServiceMonitor | IWindowsServiceMonitor | Windows SCM への問い合わせ |
+| HttpClientHealthChecker | IHealthChecker | HTTP リクエストによるヘルスチェック |
 
 ### Hosting
 
-`Winsvc.Hosting` は API endpoint 定義と ASP.NET Core host 構築の共有ロジックです。
-
-`Winsvc.Cli` の `api serve` サブコマンドから利用されます。
-
-bind 先は `appsettings.json` の `Winsvc:Api:Urls`、環境変数 `Winsvc__Api__Urls`、または CLI 引数 `--urls` で設定します。
+Winsvc.Hosting は、ASP.NET Core Minimal APIs でエンドポイントを定義し、DI コンテナへのサービス登録を行います。
 
 現在のエンドポイント:
-- `GET /services/windows`
-- `GET /services/managed`
-- `GET /services/{id}`
-- `GET /services/{id}/health`
-- `POST /services/{id}/start`
-- `POST /services/{id}/stop`
-- `POST /services/{id}/restart`
 
-現在 `install`、`uninstall`、`render` は API に出していません。
+| Method | Path | 説明 |
+|---|---|---|
+| GET | `/` | API の疎通確認 |
+| GET | `/services/windows` | Windows 登録済みサービス一覧 |
+| GET | `/services/managed` | 管理対象サービス一覧 |
+| GET | `/services/{id}` | サービス詳細 |
+| GET | `/services/{id}/health` | ヘルスチェック |
+| POST | `/services/{id}/start` | サービス起動 |
+| POST | `/services/{id}/stop` | サービス停止 |
+| POST | `/services/{id}/restart` | サービス再起動 |
+
+**注意:** install, uninstall, render は API に公開されていません。これらの操作は CLI からのみ実行できます。
+
+### Cli
+
+Winsvc.Cli は、System.CommandLine を使った CLI の定義と、全コマンドのハンドラー実装を持ちます。
+
+`api serve` サブコマンドは、Winsvc.Hosting を利用して ASP.NET Core の WebHost を構築し、ローカル API を起動します。これにより、CLI と API で同じビジネスロジックとインフラ実装を共有しています。
+
+## リポジトリとランタイムの分離
+
+Git 管理対象とランタイム生成物は明確に分離しています。
+
+**Git 管理対象:**
+- ソースコード（`src/`）
+- manifest テンプレート（`manifests/service.template.yaml`）
+- スクリプト（`scripts/`）
+- ドキュメント（`docs/`）
+
+**ランタイム生成物（Git 管理外）:**
+- WinSW XML（manifest から自動生成）
+- WinSW ラッパー実行ファイル（`winsw.exe` からコピー）
+- ログファイル
+
+これらの生成物はすべて manifest から自動生成されるため、リポジトリにコミットする必要がありません。実 manifest（`.yaml` ファイル）も `.gitignore` で除外されており、テンプレートのみがコミットされます。
+
+## 設定の優先順位
+
+設定値は、CLI 引数、環境変数、appsettings.json の順で上書きされます。上位の設定源が優先されます。
+
+```text
+CLI 引数 > 環境変数 > appsettings.json
+```
+
+主要な設定キー:
+
+| 設定項目 | CLI 引数 | 環境変数 | appsettings.json |
+|---|---|---|---|
+| API URL | `--urls` | `Winsvc__Api__Urls` | `Winsvc:Api:Urls` |
+| Manifest ディレクトリ | `--manifest-dir` | `Winsvc__ManifestDirectory` | `Winsvc:ManifestDirectory` |
+
+環境変数の区切り文字に `__`（二重アンダースコア）を使っているのは、ASP.NET Core の規約です。`appsettings.json` ではコロン区切り（`Winsvc:Api:Urls`）で同じ設定を表します。
