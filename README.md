@@ -150,6 +150,10 @@ scripts/                 開発用スクリプト
 | [Architecture](docs/architecture.md) | アーキテクチャ、データフロー、コンポーネント構成 |
 | [Development](docs/development.md) | ビルド、テスト、CI、リリース手順 |
 
+## Agent Skills Support
+
+`.claude/skills/winsvc-manager-api/` にAIエージェント向けのSkillを同封。AIが winsvc-managerのAPIを使ってWindowsサービスの状態確認・起動・停止などの操作を実行できる。
+
 ## ライセンス
 
 MIT License. Copyright (c) 2026 endo-ly
